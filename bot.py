@@ -282,13 +282,18 @@ async def consult_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = final.get('level', 'не определён')
     overall = final.get('overall', 0)
     text_result = final.get('text', 'нет данных')
+    # Экранируем HTML-спецсимволы в тексте результата для корректной отправки
+    text_escaped = (text_result
+                    .replace('&', '&amp;')
+                    .replace('<', '&lt;')
+                    .replace('>', '&gt;'))
     msg = (
-        f"📨 *Новая заявка на консультацию!*\n"
+        f"📨 <b>Новая заявка на консультацию!</b>\n"
         f"👤 Имя: {user.full_name}\n"
         f"🆔 Username: @{user.username if user.username else 'нет'}\n"
         f"🆔 User ID: {user.id}\n"
-        f"📊 Результат опроса: уровень {level} (средний балл {overall:.2f})\n\n"
-        f"<pre>{text_result}</pre>\n\n"
+        f"📊 Результат: уровень {level} (средний балл {overall:.2f})\n\n"
+        f"<pre>{text_escaped}</pre>\n\n"
         f"Свяжитесь с клиентом для согласования времени."
     )
     try:
@@ -318,10 +323,10 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Я понимаю только команду /start для начала опроса. Если вы в процессе, введите число от 1 до 4.")
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def error_handler(update: object, error: Exception) -> None:
     """Глобальный обработчик ошибок приложения"""
     logger.error("Необработанная ошибка | update=%s | error=%s",
-                 update, context.error, exc_info=context.error)
+                 update, error, exc_info=True)
 
 def main():
     logger.info("Запуск бота...")
