@@ -330,10 +330,13 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Глобальный обработчик ошибок приложения"""
+    error = context.error
+    if isinstance(error, Conflict):
+        logger.warning("Conflict: другой экземпляр бота уже запущен. "
+                       "run_polling автоматически повторит попытку.")
+        return
     logger.error("Необработанная ошибка | update=%s | error=%s",
-                 update, context.error, exc_info=True)
-
-POLLING_RESTART_DELAY = 30  # секунд ожидания при Conflict перед повтором
+                 update, error, exc_info=True)
 
 
 def main():
@@ -349,17 +352,7 @@ def main():
     application.add_handler(CallbackQueryHandler(consult_callback, pattern='^consult$'))
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
     logger.info("Бот запущен. Логи: %s/", LOG_DIR)
-    while True:
-        try:
-            application.run_polling(allowed_updates=Update.ALL_TYPES)
-        except KeyboardInterrupt:
-            logger.info("Бот остановлен пользователем")
-            break
-        except Conflict:
-            logger.warning("Conflict: другой экземпляр бота уже запущен. Повтор через %d сек...",
-                           POLLING_RESTART_DELAY)
-            import time
-            time.sleep(POLLING_RESTART_DELAY)
+    application.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
