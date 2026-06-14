@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Telegram-бот для диагностики зрелости бизнес-процессов (на основе CMMI)
-Расширенная версия с детальными рекомендациями по каждому блоку
-Автор: Наталия Демина (бизнес-терапия)
-"""
-
-import logging
 import os
-from logging.handlers import RotatingFileHandler
-
+import logging
+from dotenv import load_dotenv  # для локального тестирования
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,9 +15,19 @@ from telegram.ext import (
     ContextTypes
 )
 
-# -------------------- НАСТРОЙКИ --------------------
-BOT_TOKEN = "8104874567:AAGUcnZxyo3EmGQDU6aku2HfDMMR1qW5wEg"
-CONSULTANT_CHAT_ID = 307488211  # ID консультанта (получить через @userinfobot)
+# Загружаем переменные из .env только если файл существует (локально)
+if os.path.exists('.env'):
+    load_dotenv()
+
+# Получаем токен из переменной окружения
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("Переменная окружения TELEGRAM_BOT_TOKEN не установлена!")
+
+# ID консультанта — также лучше вынести в переменную
+CONSULTANT_CHAT_ID = int(os.environ.get('CONSULTANT_CHAT_ID', 0))
+if not CONSULTANT_CHAT_ID:
+    raise ValueError("Переменная окружения CONSULTANT_CHAT_ID не установлена!")
 
 # -------------------- ЛОГИРОВАНИЕ --------------------
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
