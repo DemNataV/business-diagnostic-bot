@@ -3,6 +3,7 @@
 
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv  # для локального тестирования
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
