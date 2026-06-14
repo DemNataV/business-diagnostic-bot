@@ -327,10 +327,10 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Я понимаю только команду /start для начала опроса. Если вы в процессе, введите число от 1 до 4.")
 
 
-async def error_handler(update: object, error: Exception) -> None:
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Глобальный обработчик ошибок приложения"""
     logger.error("Необработанная ошибка | update=%s | error=%s",
-                 update, error, exc_info=True)
+                 update, context.error, exc_info=True)
 
 def main():
     logger.info("Запуск бота...")
