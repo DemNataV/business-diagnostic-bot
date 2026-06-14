@@ -8,6 +8,9 @@ Telegram-бот для диагностики зрелости бизнес-пр
 """
 
 import logging
+import os
+from logging.handlers import RotatingFileHandler
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -21,8 +24,56 @@ from telegram.ext import (
 
 # -------------------- НАСТРОЙКИ --------------------
 BOT_TOKEN = "8104874567:AAGUcnZxyo3EmGQDU6aku2HfDMMR1qW5wEg"
-CONSULTANT_CHAT_ID = 307488211
-   # ID консультанта (получить через @userinfobot)
+CONSULTANT_CHAT_ID = 307488211  # ID консультанта (получить через @userinfobot)
+
+# -------------------- ЛОГИРОВАНИЕ --------------------
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+LOG_MAX_BYTES = 5 * 1024 * 1024   # 5 МБ на файл
+LOG_BACKUP_COUNT = 5              # хранить 5 ротированных файлов
+
+
+def setup_logging() -> logging.Logger:
+    """Настраивает логирование: консоль + rotatable файл для всех событий + отдельный файл для ошибок"""
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+
+    # Консоль
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # Общий файл логов
+    file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, "bot.log"),
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Отдельный файл только для ошибок
+    error_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, "error.log"),
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    logger.addHandler(error_handler)
+
+    return logger
+
+
+logger = setup_logging()
 
 ASKING = range(1)
 
@@ -165,6 +216,8 @@ def format_result_text(level, averages, overall_avg, recommendations):
 # -------------------- ОБРАБОТЧИКИ --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    logger.info("Пользователь начал опрос | id=%s | username=%s | name=%s",
+                user.id, user.username, user.full_name)
     await update.message.reply_text(
         f"Привет, {user.first_name}!\n\n"
         "Я проведу диагностику зрелости ваших бизнес-процессов.\n"
@@ -179,20 +232,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_q_index'] = 0
     q_text, _, _ = QUESTIONS[0]
     await update.message.reply_text(f"Вопрос 1/23:\n{q_text}\n\nВведите число от 1 до 4:")
+    logger.info("Первый вопрос отправлен | user_id=%s", user.id)
     return ASKING
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     user_answer = update.message.text.strip()
     if not user_answer.isdigit():
+        logger.warning("Некорректный ввод (не число) | user_id=%s | ввод='%s'", user.id, user_answer)
         await update.message.reply_text("❌ Ошибка: введите число от 1 до 4. Попробуйте ещё раз.")
         return ASKING
     value = int(user_answer)
     if value < 1 or value > 4:
+        logger.warning("Некорректный ввод (вне диапазона) | user_id=%s | ввод=%d", user.id, value)
         await update.message.reply_text("❌ Ошибка: число должно быть от 1 до 4. Попробуйте ещё раз.")
         return ASKING
     current_idx = context.user_data['current_q_index']
     q_text, block, _ = QUESTIONS[current_idx]
     context.user_data['answers'].append((block, value))
+    logger.info("Ответ получен | user_id=%s | вопрос=%d/%d | блок=%s | балл=%d",
+                user.id, current_idx + 1, len(QUESTIONS), block, value)
     current_idx += 1
     context.user_data['current_q_index'] = current_idx
     if current_idx < len(QUESTIONS):
@@ -209,12 +268,16 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📅 Записаться на консультацию", callback_data="consult")]])
         await update.message.reply_text(result_text, reply_markup=keyboard, parse_mode='Markdown')
         context.user_data['final_results'] = {'level': level, 'averages': averages, 'overall': overall, 'text': result_text}
+        logger.info("Опрос завершён | user_id=%s | уровень=%d | средний_балл=%.2f | ответы=%s",
+                    user.id, level, overall, answers)
         return ConversationHandler.END
 
 async def consult_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = query.from_user
+    logger.info("Заявка на консультацию | user_id=%s | username=%s | name=%s",
+                user.id, user.username, user.full_name)
     final = context.user_data.get('final_results', {})
     level = final.get('level', 'не определён')
     overall = final.get('overall', 0)
@@ -228,22 +291,42 @@ async def consult_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<pre>{text_result}</pre>\n\n"
         f"Свяжитесь с клиентом для согласования времени."
     )
-    await context.bot.send_message(chat_id=CONSULTANT_CHAT_ID, text=msg, parse_mode='HTML')
+    try:
+        await context.bot.send_message(chat_id=CONSULTANT_CHAT_ID, text=msg, parse_mode='HTML')
+        logger.info("Уведомление отправлено консультанту | chat_id=%s | user_id=%s", CONSULTANT_CHAT_ID, user.id)
+    except Exception as e:
+        logger.error("Ошибка отправки уведомления консультанту | chat_id=%s | user_id=%s | error=%s",
+                     CONSULTANT_CHAT_ID, user.id, e, exc_info=True)
     await query.edit_message_text(
         "✅ Спасибо! Ваша заявка отправлена. Я свяжусь с вами в ближайшее время для согласования консультации.",
         reply_markup=None
     )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    idx = context.user_data.get('current_q_index', 0)
+    logger.info("Опрос отменён | user_id=%s | username=%s | остановился на вопросе %d",
+                user.id, user.username, idx)
     await update.message.reply_text("Опрос отменён. Чтобы начать заново, нажмите /start")
     return ConversationHandler.END
 
+
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.warning("Неизвестная команда | user_id=%s | username=%s | текст='%s'",
+                   user.id, user.username, update.message.text)
     await update.message.reply_text("Я понимаю только команду /start для начала опроса. Если вы в процессе, введите число от 1 до 4.")
 
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Глобальный обработчик ошибок приложения"""
+    logger.error("Необработанная ошибка | update=%s | error=%s",
+                 update, context.error, exc_info=context.error)
+
 def main():
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    logger.info("Запуск бота...")
     application = Application.builder().token(BOT_TOKEN).build()
+    application.add_error_handler(error_handler)
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={ASKING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]},
@@ -252,7 +335,7 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(consult_callback, pattern='^consult$'))
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
-    print("Бот запущен. Нажмите Ctrl+C для остановки.")
+    logger.info("Бот запущен. Логи: %s/", LOG_DIR)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
