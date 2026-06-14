@@ -6,6 +6,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv  # для локального тестирования
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import Conflict
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -332,6 +333,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Необработанная ошибка | update=%s | error=%s",
                  update, context.error, exc_info=True)
 
+POLLING_RESTART_DELAY = 30  # секунд ожидания при Conflict перед повтором
+
+
 def main():
     logger.info("Запуск бота...")
     application = Application.builder().token(BOT_TOKEN).build()
@@ -345,7 +349,17 @@ def main():
     application.add_handler(CallbackQueryHandler(consult_callback, pattern='^consult$'))
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
     logger.info("Бот запущен. Логи: %s/", LOG_DIR)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    while True:
+        try:
+            application.run_polling(allowed_updates=Update.ALL_TYPES)
+        except KeyboardInterrupt:
+            logger.info("Бот остановлен пользователем")
+            break
+        except Conflict:
+            logger.warning("Conflict: другой экземпляр бота уже запущен. Повтор через %d сек...",
+                           POLLING_RESTART_DELAY)
+            import time
+            time.sleep(POLLING_RESTART_DELAY)
 
 if __name__ == '__main__':
     main()
